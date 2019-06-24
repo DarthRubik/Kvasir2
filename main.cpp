@@ -6,23 +6,19 @@
 #include <tuple>
 
 
-// Each instruction that reads something, puts it into the array,
-// At the "current" index (noted by mem[0])
-
-// Indirect access is into that same array, and is denoted mem[-rel]
 enum access_kind
 {
     nop,            // Pretty self explanatory
     write_lit,      // *addr  <-- literal
-    read,           // mem[0] <-- *addr
-    write_rel,      // *addr  <-- mem[-rel]
-    or_lit,         // mem[0] <-- lit | mem[-rel]
-    and_lit,        // mem[0] <-- lit & mem[-rel]
-    not_op,         // mem[0] <-- ~mem[-rel]
-    or_op,          // mem[0] <-- mem[-r1] | mem[-r2]
-    and_op,         // mem[0] <-- mem[-r1] & mem[-r2]
-    output_op,      // output <-- mem[-r1]
-    shift_right,    // mem[0] <-- mem[-r1] >> lit
+    read,           // *addr  --> reg[r1]
+    write_rel,      // *addr  <-- reg[r1]
+    or_lit,         // reg[0] <-- lit | reg[r1]
+    and_lit,        // reg[0] <-- lit & reg[r1]
+    not_op,         // reg[0] <-- ~reg[r1]
+    or_op,          // reg[0] <-- reg[r1] | reg[r2]
+    and_op,         // reg[0] <-- reg[r1] & reg[r2]
+    output_op,      // output <-- reg[r1]
+    shift_right,    // reg[0] <-- reg[r1] >> lit
 };
 struct access
 {
@@ -34,97 +30,97 @@ struct null_t{};
 template<access_kind, unsigned int, unsigned int>
 struct action{
     template<typename cont_t,typename T>
-    void operator()(cont_t& cont,unsigned int index,T) const{}
+    void operator()(cont_t& cont,T) const{}
 };
 
 template<unsigned int addr, unsigned int val>
 struct action<write_lit,addr,val>
 {
     template<typename cont_t,typename T>
-    void operator()(cont_t& cont,unsigned int index,T) const
+    void operator()(cont_t& cont,T) const
     {
         *reinterpret_cast<unsigned int volatile*>(addr) = val;
     }
 };
-template<unsigned int addr, unsigned int relative>
-struct action<write_rel,addr,relative>
+template<unsigned int addr, unsigned int reg>
+struct action<write_rel,addr,reg>
 {
     template<typename cont_t,typename T>
-    void operator()(cont_t& cont,unsigned int index,T) const
+    void operator()(cont_t& cont,T) const
     {
-        *reinterpret_cast<unsigned int volatile*>(addr) = cont[index-relative];
+        *reinterpret_cast<unsigned int volatile*>(addr) = cont[reg];
     }
 };
-template<unsigned int addr, unsigned int op2>
-struct action<read,addr,op2>
+template<unsigned int addr, unsigned int reg>
+struct action<read,addr,reg>
 {
     template<typename cont_t,typename T>
-    void operator()(cont_t& cont,unsigned int index,T) const
+    void operator()(cont_t& cont,T) const
     {
-        cont[index] = *reinterpret_cast<unsigned int volatile*>(addr);
+        cont[reg] = *reinterpret_cast<unsigned int volatile*>(addr);
     }
 };
-template<unsigned int literal, unsigned int relative>
-struct action<or_lit,literal,relative>
+template<unsigned int literal, unsigned int reg>
+struct action<or_lit,literal,reg>
 {
     template<typename cont_t,typename T>
-    void operator()(cont_t& cont,unsigned int index,T) const
+    void operator()(cont_t& cont, T) const
     {
-        cont[index] = literal | cont[index - relative];
+        cont[0] = literal | cont[reg];
     }
 };
-template<unsigned int literal, unsigned int relative>
-struct action<and_lit,literal,relative>
+template<unsigned int literal, unsigned int reg>
+struct action<and_lit,literal,reg>
 {
     template<typename cont_t,typename T>
-    void operator()(cont_t& cont,unsigned int index,T) const
+    void operator()(cont_t& cont,T) const
     {
-        cont[index] = literal & cont[index - relative];
+        cont[0] = literal & cont[reg];
     }
 };
-template<unsigned int relative, unsigned int op2>
-struct action<not_op,relative,op2>
+template<unsigned int reg, unsigned int op2>
+struct action<not_op,reg,op2>
 {
     template<typename cont_t,typename T>
-    void operator()(cont_t& cont,unsigned int index,T) const
+    void operator()(cont_t& cont,T) const
     {
-        cont[index] = ~cont[index - relative];
+        cont[0] = ~cont[reg];
     }
 };
 template<unsigned int r1, unsigned int r2>
 struct action<or_op,r1,r2>
 {
     template<typename cont_t,typename T>
-    void operator()(cont_t& cont,unsigned int index,T) const
+    void operator()(cont_t& cont,T) const
     {
-        cont[index] = cont[index-r1] | cont[index - r2];
+        cont[0] = cont[r1] | cont[r2];
     }
 };
 template<unsigned int r1, unsigned int r2>
 struct action<and_op,r1,r2>
 {
     template<typename cont_t,typename T>
-    void operator()(cont_t& cont,unsigned int index,T) const
+    void operator()(cont_t& cont,T) const
     {
-        cont[index] = cont[index-r1] & cont[index - r2];
+        cont[0] = cont[r1] & cont[r2];
     }
 };
 template<unsigned int r1, unsigned int lit>
 struct action<shift_right,r1,lit>
 {
     template<typename cont_t,typename T>
-    void operator()(cont_t& cont,unsigned int index,T) const
+    void operator()(cont_t& cont,T) const
     {
-        cont[index] = cont[index-r1] >> lit;
+        cont[0] = cont[r1] >> lit;
     }
 };
 template<unsigned int r1, unsigned int ptr>
 struct action<output_op,r1,ptr>
 {
     template<typename cont_t,typename T>
-    void operator()(cont_t& cont,unsigned int index,T& t) const
+    void operator()(cont_t& cont,T& t) const
     {
-        t = (std::decay_t<T>)cont[index-r1];
+        t = (std::decay_t<T>)cont[r1];
     }
 };
 
@@ -150,10 +146,10 @@ struct set_value
     constexpr auto get_inst() const
     {
         return std::array<access,max_inst_size>{
-            access{read,bit_loc::Addr},
-            access{and_lit,~bit_loc::Mask,1},
-            access{or_lit,((unsigned int)value)<<bit_loc::Shift,1},
-            access{write_rel,bit_loc::Addr,1},
+            access{read,bit_loc::Addr,0},
+            access{and_lit,~bit_loc::Mask,0},
+            access{or_lit,((unsigned int)value)<<bit_loc::Shift,0},
+            access{write_rel,bit_loc::Addr,0},
         };
     }
 };
@@ -164,10 +160,10 @@ struct read_value
     constexpr auto get_inst() const
     {
         return std::array<access,max_inst_size>{
-            access{read,bit_loc::Addr},
-            access{and_lit,bit_loc::Mask,1},
-            access{shift_right,1,bit_loc::Shift},
-            access{output_op,1},
+            access{read,bit_loc::Addr,0},
+            access{and_lit,bit_loc::Mask,0},
+            access{shift_right,0,bit_loc::Shift},
+            access{output_op,0},
         };
     }
 };
@@ -231,12 +227,13 @@ auto apply_impl(std::index_sequence<inst_index...>,T... t)
         )...
     };
 
-    std::array<unsigned int, sizeof...(inst_index)> data{};
+    // A set of "registers"
+    std::array<unsigned int, 16> virtual_registers{};
     (action<
         inst[inst_index].kind,
         inst[inst_index].op1,
         inst[inst_index].op2>{}(
-            data,inst_index,std::get<tuple_index[inst_index]>(ret)),...);
+            virtual_registers,std::get<tuple_index[inst_index]>(ret)),...);
     
     return ret;
 }
