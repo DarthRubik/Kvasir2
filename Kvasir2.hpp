@@ -8,6 +8,8 @@
 #include <type_traits>
 #include <tuple>
 #include <cinttypes>
+#include <variant>
+#include <variant>
 
 
 using reg_type = std::uint32_t;
@@ -148,6 +150,15 @@ struct action<output_op,r1,ptr>
     }
 };
 
+
+
+struct bit_location_rt
+{
+    op_type Addr;
+    reg_type Mask;
+    unsigned int Shift;
+};
+
 template<op_type addr, op_type mask, typename type_t, unsigned int shift = 0>
 struct bit_location
 {
@@ -155,9 +166,43 @@ struct bit_location
     static constexpr reg_type Mask = mask;
     using type = type_t;
     static constexpr unsigned int Shift = shift;
+
+    constexpr auto to_rt() const
+        { return bit_location_rt{ Addr, Mask, Shift }; }
 };
 
 static constexpr int max_inst_size = 5;
+
+struct set_value_rt
+{
+    bit_location_rt bit_loc;
+    op_type value;
+    constexpr auto get_inst() const
+    {
+        return std::array<access,max_inst_size>{
+            access{read,bit_loc.Addr,0},
+            access{and_lit,~bit_loc.Mask,0},
+            access{or_lit,(value)<<bit_loc.Shift,0},
+            access{write_rel,bit_loc.Addr,0},
+        };
+    }
+};
+struct read_value_rt
+{
+    bit_location_rt bit_loc;
+    constexpr auto get_inst() const
+    {
+        return std::array<access,max_inst_size>{
+            access{read,bit_loc.Addr,0},
+            access{and_lit,bit_loc.Mask,0},
+            access{shift_right,0,bit_loc.Shift},
+            access{output_op,0},
+        };
+    }
+};
+
+
+using ast_node = std::variant<set_value_rt,read_value_rt>;
 
 
 
@@ -167,29 +212,20 @@ template<typename bit_loc, typename bit_loc::type value>
 struct set_value
 {
     using type = null_t;
-    constexpr auto get_inst() const
+    constexpr auto get_rt() const
     {
-        return std::array<access,max_inst_size>{
-            access{read,bit_loc::Addr,0},
-            access{and_lit,~bit_loc::Mask,0},
-            access{or_lit,((op_type)value)<<bit_loc::Shift,0},
-            access{write_rel,bit_loc::Addr,0},
-        };
+        return set_value_rt{ bit_loc{}.to_rt(), value };
     }
 };
 template<typename bit_loc>
 struct read_value
 {
     using type = typename bit_loc::type;
-    constexpr auto get_inst() const
+    constexpr auto get_rt() const
     {
-        return std::array<access,max_inst_size>{
-            access{read,bit_loc::Addr,0},
-            access{and_lit,bit_loc::Mask,0},
-            access{shift_right,0,bit_loc::Shift},
-            access{output_op,0},
-        };
+        return read_value_rt{ bit_loc{}.to_rt() };
     }
+
 };
 
 template<typename it,typename pred_t>
@@ -204,8 +240,8 @@ constexpr auto count_if(it begin, it end, pred_t pred)
     return count;
 }
 
-template<typename... T, std::size_t... inst_index>
-auto apply_impl(std::index_sequence<inst_index...>,T... t)
+template<typename... T, std::size_t... t_index, std::size_t... inst_index>
+auto apply_impl(std::index_sequence<t_index...>,std::index_sequence<inst_index...>,T... t)
 {
     using boost::hana::_;
     using boost::hana::type_c;
@@ -229,13 +265,17 @@ auto apply_impl(std::index_sequence<inst_index...>,T... t)
 
     ret_t ret{};
 
-    constexpr std::array<std::array<access,max_inst_size>,sizeof...(T)> sub_prog =
+    constexpr std::array<ast_node,sizeof...(T)> nodes =
     {
-        t.get_inst()...
+        t.get_rt()...
     };
 
-    // Preform optimization on instruction array (TODO)
+    // Preform optimization on ast_nodes (TODO)
 
+    constexpr std::array<std::array<access,max_inst_size>,sizeof...(T)> sub_prog =
+    {
+        std::visit([](auto x) { return x.get_inst(); }, nodes[t_index])...
+    };
     
     constexpr std::array<access,sizeof...(inst_index)> inst =
     {
@@ -265,6 +305,7 @@ template<typename... T>
 auto apply(T... t)
 {
     return apply_impl(
+            std::make_index_sequence<sizeof...(T)>{},
             std::make_index_sequence<sizeof...(T)*max_inst_size>{},t...);
 }
 
