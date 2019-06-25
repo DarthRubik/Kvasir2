@@ -8,7 +8,6 @@
 #include <type_traits>
 #include <tuple>
 #include <cinttypes>
-#include <cassert>
 
 
 using reg_type = std::uint32_t;
