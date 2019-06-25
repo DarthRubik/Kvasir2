@@ -9,6 +9,6 @@ find_package(Boost)
 include_directories( ${Boost_INCLUDE_DIR} )
 
 
-add_library(main main.cpp)
+add_executable(main main.cpp)
 
 
