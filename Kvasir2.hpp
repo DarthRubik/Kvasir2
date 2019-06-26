@@ -140,13 +140,14 @@ struct action<shift_right,r1,lit>
         cont[0] = cont[r1] >> lit;
     }
 };
-template<op_type r1, op_type ptr>
-struct action<output_op,r1,ptr>
+template<op_type r1, op_type tuple_index>
+struct action<output_op,r1,tuple_index>
 {
     template<typename cont_t,typename T>
     void operator()(cont_t& cont,T& t) const
     {
-        t = (std::decay_t<T>)cont[r1];
+        using type = std::decay_t<decltype(std::get<tuple_index>(t))>;
+        std::get<tuple_index>(t) = (type)cont[r1];
     }
 };
 
@@ -190,13 +191,14 @@ struct set_value_rt
 struct read_value_rt
 {
     bit_location_rt bit_loc;
+    op_type tuple_index;
     constexpr auto get_inst() const
     {
         return std::array<access,max_inst_size>{
             access{read,bit_loc.Addr,0},
             access{and_lit,bit_loc.Mask,0},
             access{shift_right,0,bit_loc.Shift},
-            access{output_op,0},
+            access{output_op,0,tuple_index},
         };
     }
 };
@@ -271,6 +273,15 @@ constexpr void bubble_sort(It begin, It end, Op op)
 template<std::size_t size>
 constexpr std::array<ast_node,size> optimize_ast(std::array<ast_node,size> ast)
 {
+    int index = 0;
+    for (auto i = ast.begin(); i != ast.end(); ++i)
+    {
+        if (std::holds_alternative<read_value_rt>(*i))
+        {
+            std::get<read_value_rt>(*i).tuple_index = index++;
+        }
+    };
+
     auto part = [](auto x) {
         if (std::holds_alternative<set_value_rt>(x))
         {
@@ -294,7 +305,6 @@ auto apply_impl(std::index_sequence<t_index...>,std::index_sequence<inst_index..
     using boost::hana::unpack;
     using boost::hana::template_;
     using boost::hana::filter;
-    using boost::hana::append;
 
     // Make a tuple with all the outputs:
     // eg:
@@ -302,8 +312,7 @@ auto apply_impl(std::index_sequence<t_index...>,std::index_sequence<inst_index..
     // Then we do this: [null_t, bool, char] -> [bool, char]
     // Then we add a final "null_t" so that we never try to access off
     // the end of the tuple down below
-    auto return_filtered = append(
-        filter(tuple_t<typename T::type...>,_!=type_c<null_t>),type_c<null_t>);
+    auto return_filtered = filter(tuple_t<typename T::type...>,_!=type_c<null_t>);
     
     // Now convert the type list into a std::tuple
     using ret_t = typename decltype(unpack(return_filtered, template_<std::tuple>))::type;
@@ -327,22 +336,13 @@ auto apply_impl(std::index_sequence<t_index...>,std::index_sequence<inst_index..
         sub_prog[inst_index/max_inst_size][inst_index%max_inst_size]...
     };
 
-    // This creates an index array to pass to std::get later
-    // We essentially increment the index if we see an output_op
-    // because then we move to the next tuple type
-    constexpr std::array<int,std::end(inst)-std::begin(inst)> tuple_index{
-        count_if(std::begin(inst),std::begin(inst)+inst_index,
-            [](auto x) { return x.kind == output_op; }
-        )...
-    };
-
     // A set of "registers"
     std::array<op_type, 16> virtual_registers{};
     (action<
         inst[inst_index].kind,
         inst[inst_index].op1,
         inst[inst_index].op2>{}(
-            virtual_registers,std::get<tuple_index[inst_index]>(ret)),...);
+            virtual_registers,ret),...);
     
     return ret;
 }

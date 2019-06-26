@@ -33,25 +33,37 @@ void test_bubble_sort()
     assert(unsorted[0] == 1);
 }
 
+using loc1 = bit_location<100,1<<0,bool,0>;
+using loc2 = bit_location<200,1<<5,bool,5>;
 
-int main(void)
+void apply_no_read()
 {
-    using loc1 = bit_location<100,1<<0,bool,0>;
-    using loc2 = bit_location<200,1<<5,bool,5>;
+    apply(
+        set_value<loc1,true>{},
+        set_value<loc2,false>{}
+    );
+}
 
+void apply_check_bits_set_and_cleared()
+{
     debug_memory[200] = 0xffffffff;
 
-    bool x = std::get<0>(
-        apply(
-            read_value<loc1>{},
-            set_value<loc1,true>{},
-            set_value<loc2,false>{}
-        )
+    auto x = apply(
+        read_value<loc1>{},
+        read_value<loc2>{},
+        set_value<loc1,true>{},
+        set_value<loc2,false>{}
     );
     assert(debug_memory[100] == 1);
     assert(debug_memory[200] == 0xffffffdf);
-    assert(x);
+    assert(std::get<0>(x));
+    assert(!std::get<1>(x));
+}
 
 
+int main(void)
+{
     test_bubble_sort();
+    apply_no_read();
+    apply_check_bits_set_and_cleared();
 }
