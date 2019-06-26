@@ -1,6 +1,7 @@
 
 #define USE_KVASIR2_DEBUG_WRITES
 #include "Kvasir2.hpp"
+#include "algorithm.hpp"
 #include <cassert>
 
 

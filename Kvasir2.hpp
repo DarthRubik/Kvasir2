@@ -10,6 +10,7 @@
 #include <cinttypes>
 #include <variant>
 #include <variant>
+#include "algorithm.hpp"
 
 
 using reg_type = std::uint32_t;
@@ -237,38 +238,6 @@ struct read_value
 
 };
 
-template<typename it,typename pred_t>
-constexpr auto count_if(it begin, it end, pred_t pred)
-{  // constexpr version of count_if
-    std::size_t count = 0;
-    for (it i = begin; i != end; ++i)
-    {
-        if (pred(*i))
-            count++;
-    }
-    return count;
-}
-
-// Need to roll own, because std::sort isn't constexpr till c++20
-template<typename It,typename Op>
-constexpr void bubble_sort(It begin, It end, Op op)
-{
-    bool did_swap = true;
-    while (did_swap)
-    {
-        did_swap = false;
-        for (It i = begin; i != std::prev(end); ++i)
-        {
-            if (op(*(std::next(i)),*i))
-            {
-                auto temp = *i;
-                *i = *std::next(i);
-                *std::next(i) = temp;
-                did_swap = true;
-            }
-        }
-    }
-}
 
 template<std::size_t size>
 constexpr std::array<ast_node,size> optimize_ast(std::array<ast_node,size> ast)
