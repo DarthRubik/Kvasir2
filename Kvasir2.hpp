@@ -200,9 +200,16 @@ struct read_value_rt
         };
     }
 };
+struct nop_rt
+{
+    constexpr auto get_inst() const
+    {
+        return std::array<access,max_inst_size>{};
+    }
+};
 
 
-using ast_node = std::variant<set_value_rt,read_value_rt>;
+using ast_node = std::variant<set_value_rt,read_value_rt,nop_rt>;
 
 
 
@@ -240,6 +247,44 @@ constexpr auto count_if(it begin, it end, pred_t pred)
     return count;
 }
 
+// Need to roll own, because std::sort isn't constexpr till c++20
+template<typename It,typename Op>
+constexpr void bubble_sort(It begin, It end, Op op)
+{
+    bool did_swap = true;
+    while (did_swap)
+    {
+        did_swap = false;
+        for (It i = begin; i != std::prev(end); ++i)
+        {
+            if (op(*(std::next(i)),*i))
+            {
+                auto temp = *i;
+                *i = *std::next(i);
+                *std::next(i) = temp;
+                did_swap = true;
+            }
+        }
+    }
+}
+
+template<std::size_t size>
+constexpr std::array<ast_node,size> optimize_ast(std::array<ast_node,size> ast)
+{
+    auto part = [](auto x) {
+        if (std::holds_alternative<set_value_rt>(x))
+        {
+            return 0;
+        }
+        else
+        {
+            return 1;
+        }
+    };
+    bubble_sort(ast.begin(),ast.end(),[&](auto x, auto y) { return part(x) < part(y); });
+    return ast;
+}
+
 template<typename... T, std::size_t... t_index, std::size_t... inst_index>
 auto apply_impl(std::index_sequence<t_index...>,std::index_sequence<inst_index...>,T... t)
 {
@@ -270,11 +315,11 @@ auto apply_impl(std::index_sequence<t_index...>,std::index_sequence<inst_index..
         t.get_rt()...
     };
 
-    // Preform optimization on ast_nodes (TODO)
+    constexpr std::array<ast_node,sizeof...(T)> optimized = optimize_ast(nodes);
 
     constexpr std::array<std::array<access,max_inst_size>,sizeof...(T)> sub_prog =
     {
-        std::visit([](auto x) { return x.get_inst(); }, nodes[t_index])...
+        std::visit([](auto x) { return x.get_inst(); }, optimized[t_index])...
     };
     
     constexpr std::array<access,sizeof...(inst_index)> inst =
