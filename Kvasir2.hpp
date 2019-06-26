@@ -261,7 +261,7 @@ constexpr std::array<ast_node,size> optimize_ast(std::array<ast_node,size> ast)
             return 1;
         }
     };
-    bubble_sort(ast.begin(),ast.end(),[&](auto x, auto y) { return part(x) < part(y); });
+    bubble_sort(ast,[&](auto x, auto y) { return part(x) < part(y); });
     return ast;
 }
 

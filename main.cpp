@@ -21,7 +21,7 @@ void test_bubble_sort()
         8,
         9,
     };
-    bubble_sort(unsorted.begin(),unsorted.end(),std::less<>{});
+    bubble_sort(view(unsorted),std::less<>{});
     assert(unsorted[9] == 10);
     assert(unsorted[8] == 9);
     assert(unsorted[7] == 8);
