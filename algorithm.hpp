@@ -1,5 +1,6 @@
 #ifndef ALGORITHM_HPP
 #define ALGORITHM_HPP
+#include <iterator>
 
 template <typename value_type_t,
           typename reference_t,
