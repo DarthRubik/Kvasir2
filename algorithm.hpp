@@ -109,6 +109,14 @@ constexpr auto cview(cont_t const& cont)
     return slice(cont,std::begin(cont),std::end(cont));
 }
 
+template<typename cont_t,typename it_t>
+constexpr auto split(cont_t&& cont,it_t it)
+{
+    return std::make_pair(
+            slice(cont,std::begin(cont),it),
+            slice(cont,it,std::end(cont)));
+}
+
 
 
 template<typename T>
@@ -119,33 +127,34 @@ constexpr auto swap(T& a, T& b)
     b = std::move(temp);
 }
 
-// Stolen from en.cppreference
+template<typename cont_t>
+constexpr void reverse(cont_t&& cont)
+{
+    auto front = std::begin(cont);
+    auto back = std::end(cont) - 1;
+    while (front < back)
+    {
+        ::swap(*front++,*back--);
+    }
+}
+
 template<typename cont_t>
 constexpr auto rotate(
     cont_t&& cont,typename std::decay_t<cont_t>::iterator new_begin)
 {
-   if(std::begin(cont) == new_begin) return std::end(cont);
-   if(new_begin == std::end(cont)) return std::begin(cont);
-
-   auto read      = new_begin;
-   auto write     = std::begin(cont);
-   auto next_read = std::begin(cont);
-
-   while(read != std::end(cont)) {
-      if(write == next_read) next_read = read;
-      ::swap(*write++, *read++);
-   }
-   ::rotate(slice(cont,write,std::end(cont)), next_read);
-   return write;
+    auto parts = split(cont,new_begin);
+    ::reverse(parts.first);
+    ::reverse(parts.second);
+    ::reverse(cont);
+    return std::begin(cont) + (std::end(cont) - new_begin);
 }
 
 template<typename cont_t>
 constexpr auto divide_cont(cont_t&& cont)
 {
     auto elems = std::size(cont);
-    auto first = slice(cont,std::begin(cont),std::begin(cont) + elems/2);
-    auto second = slice(cont,std::begin(cont)+elems/2,std::end(cont));
-    return std::make_pair(first,second);
+    auto mid = std::begin(cont) + elems/2;
+    return split(cont,mid);
 }
 
 template<typename cont_t, typename pred_t>
@@ -158,15 +167,11 @@ constexpr auto stable_partition(cont_t&& cont, pred_t pred)
     {
         if (pred(*std::begin(cont)))
         {
-            return std::make_pair(
-                slice(cont,std::begin(cont),std::end(cont)),
-                slice(cont,std::end(cont),std::end(cont)));
+            return split(cont,std::end(cont));
         }
         else
         {
-            return std::make_pair(
-                slice(cont,std::begin(cont),std::begin(cont)),
-                slice(cont,std::begin(cont),std::end(cont)));
+            return split(cont,std::begin(cont));
         }
     }
     auto ranges = ::divide_cont(cont);
@@ -190,9 +195,7 @@ constexpr auto stable_partition(cont_t&& cont, pred_t pred)
     auto partition_point =
         ::rotate(slice(cont,std::begin(top_parts.second),std::end(bot_parts.first)),
             std::begin(bot_parts.first));
-    return std::make_pair(
-            slice(cont,std::begin(cont),partition_point),
-            slice(cont,partition_point,std::end(cont)));
+    return split(cont,partition_point);
 }
 
 template<typename cont_t,typename pred_t>
