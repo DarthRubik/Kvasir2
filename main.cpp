@@ -95,6 +95,7 @@ void apply_check_bits_set_and_cleared()
     auto x = apply(
         read_value<loc1>{},
         read_value<loc2>{},
+        read_value<loc3>{},
         set_value<loc1,true>{},
         set_value<loc2,false>{},
         set_value<loc3,false>{}
@@ -103,6 +104,7 @@ void apply_check_bits_set_and_cleared()
     assert(debug_memory[200] == 0xffffffdf);
     assert(std::get<0>(x));
     assert(!std::get<1>(x));
+    assert(!std::get<2>(x));
 }
 
 

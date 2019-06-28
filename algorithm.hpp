@@ -295,6 +295,29 @@ constexpr auto equal_range(cont_t const& cont, T const& value, Op op)
 {
     return slice(cont,lower_bound(cont,value,op),upper_bound(cont,value,op));
 }
+template<typename cont_t,typename It, typename Op>
+constexpr auto equal_ranges(cont_t const& cont, It out, Op op)
+{
+    if (std::size(cont) == 0) return out;
+
+    auto CurrentValue = *std::begin(cont);
+    auto BeginRange = std::begin(cont);
+
+    auto i = std::begin(cont);
+    for (; i != std::end(cont); ++i)
+    {
+        if (op(CurrentValue,*i) || op(*i,CurrentValue))
+        {
+            CurrentValue = *i;
+            *out++ = slice(cont,BeginRange,i);
+
+            BeginRange = i;
+        }
+    }
+    *out++ = slice(cont,BeginRange,i);
+    return out;
+}
+
 template<typename cont_t,typename T, typename Op>
 constexpr auto accumulate(cont_t const& cont, T init,Op op)
 {

@@ -281,19 +281,8 @@ constexpr std::array<ast_node,size> optimize_ast(std::array<ast_node,size> ast)
     // Sorting the writes by address lets us merge them together later
     ::quick_sort(set_value_view,addr_lt);
 
-    // Generate a list of the addresses we are dealing with
-    std::array<op_type,size> addresses{};
-    auto last = ::transform(set_value_view,addresses.begin(),addr_v);
-    auto [ unique_addresses, unused_data ]
-        = ::unique(slice(addresses,addresses.begin(),last),std::equal_to<>{});
-
-
-    // Foreach address, we will create a range of writes that use that address
     std::array<decltype(view(set_value_view)),size> same_addr_range{};
-    auto sadr_last = transform(unique_addresses,same_addr_range.begin(),[&](auto x){
-        auto value = ast_node(set_value_rt{bit_location_rt{x,0,0},0});
-        return equal_range(set_value_view,value,addr_lt);
-    });
+    auto sadr_last = equal_ranges(set_value_view,same_addr_range.begin(),addr_lt);
     auto same_addr_ranges_v = split(same_addr_range,sadr_last).first;
 
 
