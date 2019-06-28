@@ -159,6 +159,9 @@ struct bit_location_rt
     op_type Addr;
     reg_type Mask;
     unsigned int Shift;
+    constexpr bit_location_rt() : bit_location_rt(0,0,0){}
+    constexpr bit_location_rt(op_type Addr,reg_type Mask,unsigned int Shift)
+        : Addr(Addr), Mask(Mask), Shift(Shift) {}
 };
 
 template<op_type addr, op_type mask, typename type_t, unsigned int shift = 0>
@@ -179,6 +182,13 @@ struct set_value_rt
 {
     bit_location_rt bit_loc;
     op_type value;
+    constexpr set_value_rt() : set_value_rt(bit_location_rt{},0){}
+    constexpr set_value_rt(bit_location_rt bit_loc, op_type value)
+        : bit_loc(bit_loc), value(value)
+    {
+        value <<= bit_loc.Shift;
+        bit_loc.Shift = 0;
+    }
     constexpr auto get_inst() const
     {
         return std::array<access,max_inst_size>{
@@ -189,6 +199,16 @@ struct set_value_rt
         };
     }
 };
+
+constexpr set_value_rt merge_writes(set_value_rt a, set_value_rt b)
+{
+    return set_value_rt{
+        bit_location_rt{b.bit_loc.Addr,a.bit_loc.Mask | b.bit_loc.Mask,0},
+        a.value | b.value
+    };
+}
+
+
 struct read_value_rt
 {
     bit_location_rt bit_loc;
@@ -251,17 +271,48 @@ constexpr std::array<ast_node,size> optimize_ast(std::array<ast_node,size> ast)
         }
     };
 
-    auto part = [](auto x) {
-        if (std::holds_alternative<set_value_rt>(x))
-        {
-            return 0;
-        }
-        else
-        {
-            return 1;
-        }
-    };
-    quick_sort(ast,[&](auto x, auto y) { return part(x) < part(y); });
+    auto part = [](auto x) { return std::holds_alternative<set_value_rt>(x); };
+    auto addr_v = [](auto x){ return std::get<set_value_rt>(x).bit_loc.Addr; };
+    auto addr_lt =  [&](auto x, auto y){ return addr_v(x) < addr_v(y); };
+
+    // Partition the instructions into a range of writes and other stuff
+    auto [ set_value_view, other_view ] = ::stable_partition(ast,part);
+
+    // Sorting the writes by address lets us merge them together later
+    ::quick_sort(set_value_view,addr_lt);
+
+    // Generate a list of the addresses we are dealing with
+    std::array<op_type,size> addresses{};
+    auto last = ::transform(set_value_view,addresses.begin(),addr_v);
+    auto [ unique_addresses, unused_data ]
+        = ::unique(slice(addresses,addresses.begin(),last),std::equal_to<>{});
+
+
+    // Foreach address, we will create a range of writes that use that address
+    std::array<decltype(view(set_value_view)),size> same_addr_range{};
+    auto sadr_last = transform(unique_addresses,same_addr_range.begin(),[&](auto x){
+        auto value = ast_node(set_value_rt{bit_location_rt{x,0,0},0});
+        return equal_range(set_value_view,value,addr_lt);
+    });
+    auto same_addr_ranges_v = split(same_addr_range,sadr_last).first;
+
+
+    for (auto range : same_addr_ranges_v)
+    {
+        // Merge the writes together
+        auto value = accumulate(range,ast_node{set_value_rt{}},[](auto x, auto y){
+            return merge_writes(std::get<set_value_rt>(x),std::get<set_value_rt>(y));
+        });
+
+        // Clear out all the operations to and make room for the one that we
+        // just made (These are arrays and arn't resizeable, so we just replace
+        // the the ops with nops)
+        transform(range,range.begin(),
+            [](auto x){return ast_node(nop_rt{});});
+
+        *std::begin(range) = value;
+    }
+
     return ast;
 }
 

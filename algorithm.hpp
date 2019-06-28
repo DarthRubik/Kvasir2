@@ -198,6 +198,18 @@ constexpr auto stable_partition(cont_t&& cont, pred_t pred)
     return split(cont,partition_point);
 }
 
+
+template<typename cont_t, typename pred_t>
+constexpr auto partition_point(cont_t&& cont, pred_t pred)
+{
+    for (auto i = std::begin(cont); i != std::end(cont); ++i)
+    {
+        if (!pred(*i))
+            return split(cont,i);
+    }
+    return split(cont,std::end(cont));
+}
+
 template<typename cont_t,typename pred_t>
 constexpr auto count_if(const cont_t& cont, pred_t pred)
 {
@@ -209,6 +221,92 @@ constexpr auto count_if(const cont_t& cont, pred_t pred)
     }
     return count;
 }
+
+template<typename cont_t,typename It,typename Op>
+constexpr auto transform(cont_t const& cont, It it, Op op)
+{
+    for (auto i = std::begin(cont); i != std::end(cont); ++i)
+    {
+        *it++ = op(*i);
+    }
+    return it;
+}
+
+
+// Taken from en.cppreference.com
+template<class cont_t, class BinaryPredicate>
+constexpr auto unique(cont_t&& cont, BinaryPredicate p)
+{
+    auto first = std::begin(cont);
+    auto last = std::end(cont);
+    if (first == last)
+        return split(cont,last);
+
+    auto result = first;
+    while (++first != last) {
+        if (!p(*result, *first) && ++result != first) {
+            *result = std::move(*first);
+        }
+    }
+    return split(cont,++result);
+}
+
+template<typename cont_t, typename T, typename Op>
+constexpr auto lower_bound(cont_t const& cont, T const& value, Op op)
+{
+    auto search_range = view(cont);
+    while (std::size(search_range) > 0)
+    {
+        auto [top, bottom] = divide_cont(search_range);
+
+        // [ 1 2 3 4 5 5 5 8 9 10 ]
+        //         ^
+        if (op(*std::begin(bottom),value))
+        {
+            // [ 4 ]
+            if (search_range == bottom)
+            {
+                return std::end(bottom);
+            }
+            search_range = bottom;
+        }
+        // [ 1 2 3 4 5 5 5 8 9 10 ]
+        //               ^
+        else
+        {
+            // [ 5 ]
+            if (search_range == top)
+            {
+                return std::begin(top);
+            }
+            search_range = top;
+        }
+    }
+    return std::begin(search_range);
+}
+
+template<typename cont_t, typename T, typename Op>
+constexpr auto upper_bound(cont_t const& cont, T const& value, Op op)
+{
+    return lower_bound(cont,value,[&](auto x, auto y){ return !op(y,x); });
+}
+template<typename cont_t,typename T, typename Op>
+constexpr auto equal_range(cont_t const& cont, T const& value, Op op)
+{
+    return slice(cont,lower_bound(cont,value,op),upper_bound(cont,value,op));
+}
+template<typename cont_t,typename T, typename Op>
+constexpr auto accumulate(cont_t const& cont, T init,Op op)
+{
+    for (auto item : cont)
+    {
+        T value = op(init,item);
+        init = value;
+    }
+    return init;
+}
+
+
 
 template<typename cont_t,typename Op>
 constexpr bool is_sorted(const cont_t& cont, Op op)

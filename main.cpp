@@ -1,6 +1,5 @@
 
 #define USE_KVASIR2_DEBUG_WRITES
-#include <iostream>
 #include "Kvasir2.hpp"
 #include "algorithm.hpp"
 #include <cassert>
@@ -61,10 +60,24 @@ void test_partition()
     assert(u[8] == 1);
     assert(u[9] == 9);
 }
+void test_equal_range()
+{
+    std::array<int,10> a =
+    {
+        1,2,3,4,4,4,5,6,7,8
+    };
+    auto r = ::equal_range(cview(a),4,std::less<>{});
+    for (auto i : r)
+    {
+        assert(i == 4);
+    }
+    assert(std::size(r) == 3);
+}
 
 
 using loc1 = bit_location<100,1<<0,bool,0>;
 using loc2 = bit_location<200,1<<5,bool,5>;
+using loc3 = bit_location<100,1<<16,bool,1>;
 
 void apply_no_read()
 {
@@ -76,15 +89,17 @@ void apply_no_read()
 
 void apply_check_bits_set_and_cleared()
 {
+    debug_memory[100] = 0xffffff00;
     debug_memory[200] = 0xffffffff;
 
     auto x = apply(
         read_value<loc1>{},
         read_value<loc2>{},
         set_value<loc1,true>{},
-        set_value<loc2,false>{}
+        set_value<loc2,false>{},
+        set_value<loc3,false>{}
     );
-    assert(debug_memory[100] == 1);
+    assert(debug_memory[100] == 0xfffeff01);
     assert(debug_memory[200] == 0xffffffdf);
     assert(std::get<0>(x));
     assert(!std::get<1>(x));
@@ -95,6 +110,7 @@ int main(void)
 {
     test_quick_sort();
     test_partition();
+    test_equal_range();
     apply_no_read();
     apply_check_bits_set_and_cleared();
 }
