@@ -1,8 +1,10 @@
 
 #define USE_KVASIR2_DEBUG_WRITES
+#include "map.hpp"
 #include "Kvasir2.hpp"
 #include "algorithm.hpp"
 #include <cassert>
+#include <iostream>
 
 
 constexpr std::array<int,10> test_array =
@@ -73,6 +75,45 @@ void test_equal_range()
     }
     assert(std::size(r) == 3);
 }
+void test_map()
+{
+    ::map<int,int,10> my_map;
+    my_map.insert(std::make_pair(5,10));
+    my_map.insert(std::make_pair(2,4));
+    my_map.insert(std::make_pair(10,20));
+    my_map.insert(std::make_pair(3,6));
+    my_map.insert(std::make_pair(42,84));
+
+    assert(my_map[5] == 10);
+    assert(my_map[2] == 4);
+    assert(my_map[10] == 20);
+    assert(my_map[3] == 6);
+    assert(my_map[42] == 84);
+    assert(my_map.size() == 5);
+    assert(!my_map.empty());
+
+    assert(::is_sorted(my_map,[](auto x, auto y){
+        return x.first < y.first;
+    }));
+
+
+    auto [it,suc] = my_map.insert(std::make_pair(2,8));
+    assert(!suc);
+
+    my_map.erase(2);
+    assert(my_map.size() == 4);
+
+    std::tie(it,suc) = my_map.insert(std::make_pair(2,8));
+    assert(suc);
+    assert(it->first == 2);
+    assert(it->second == 8);
+    assert(my_map[2] == 8);
+    assert(my_map.size() == 5);
+
+    my_map.clear();
+    assert(my_map.empty());
+    assert(my_map.size() == 0);
+}
 
 
 using loc1 = bit_location<100,1<<0,bool,0>;
@@ -113,6 +154,7 @@ int main(void)
     test_quick_sort();
     test_partition();
     test_equal_range();
+    test_map();
     apply_no_read();
     apply_check_bits_set_and_cleared();
 }

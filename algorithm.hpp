@@ -285,6 +285,7 @@ constexpr auto lower_bound(cont_t const& cont, T const& value, Op op)
     return std::begin(search_range);
 }
 
+// FIXME: Doesn't work for non-homogenous types
 template<typename cont_t, typename T, typename Op>
 constexpr auto upper_bound(cont_t const& cont, T const& value, Op op)
 {
