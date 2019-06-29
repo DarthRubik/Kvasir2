@@ -46,19 +46,23 @@ struct action{
     void operator()(cont_t& cont,T) const{}
 };
 
+#ifdef USE_KVASIR2_DEBUG_WRITES
+reg_type debug_memory[1000];
+#endif
+
 template<op_type addr, op_type val>
 struct action<write_lit,addr,val>
 {
     template<typename cont_t,typename T>
     void operator()(cont_t& cont,T) const
     {
+#ifdef USE_KVASIR2_DEBUG_WRITES
+        debug_memory[addr] = val;
+#else
         *reinterpret_cast<reg_type volatile*>(addr) = val;
+#endif
     }
 };
-
-#ifdef USE_KVASIR2_DEBUG_WRITES
-reg_type debug_memory[1000];
-#endif
 
 
 template<op_type addr, op_type reg>
@@ -178,6 +182,19 @@ struct bit_location
 
 static constexpr int max_inst_size = 5;
 
+
+struct blind_write_rt
+{
+    op_type addr;
+    reg_type value;
+    constexpr blind_write_rt(op_type addr, reg_type value) : addr(addr), value(value) {}
+    constexpr auto get_inst() const
+    {
+        return std::array<access,max_inst_size>{
+            access{write_lit,addr,value},
+        };
+    }
+};
 struct set_value_rt
 {
     bit_location_rt bit_loc;
@@ -232,7 +249,7 @@ struct nop_rt
 };
 
 
-using ast_node = std::variant<set_value_rt,read_value_rt,nop_rt>;
+using ast_node = std::variant<set_value_rt,blind_write_rt,read_value_rt,nop_rt>;
 
 
 
@@ -259,9 +276,36 @@ struct read_value
 };
 
 
+struct register_state
+{
+    reg_type bits = 0;
+    reg_type known_mask = 0;
+    bool cached = false;
+    constexpr register_state() = default;
+    constexpr register_state(const register_state&) = default;
+    constexpr register_state(register_state&&) = default;
+    constexpr register_state& operator=(const register_state&) = default;
+    constexpr register_state& operator=(register_state&&) = default;
+
+    constexpr void write(reg_type value, reg_type mask)
+    {
+        bits = (bits & ~mask) | value;
+        known_mask |= mask;
+        cached = true;
+    }
+    constexpr void read()
+    {
+        cached = true;
+    }
+};
+
+
 template<std::size_t size>
 constexpr std::array<ast_node,size> optimize_ast(std::array<ast_node,size> ast)
 {
+    using boost::hana::make_pair;
+    ::map<op_type,register_state,size> mem_state;
+
     int index = 0;
     for (auto i = ast.begin(); i != ast.end(); ++i)
     {
@@ -288,10 +332,27 @@ constexpr std::array<ast_node,size> optimize_ast(std::array<ast_node,size> ast)
 
     for (auto range : same_addr_ranges_v)
     {
+        auto addr = addr_v(*std::begin(range));
+        if (!mem_state.contains(addr))
+        {
+            mem_state.insert(make_pair(addr,register_state{}));
+        }
         // Merge the writes together
         auto value = accumulate(range,ast_node{set_value_rt{}},[](auto x, auto y){
             return merge_writes(std::get<set_value_rt>(x),std::get<set_value_rt>(y));
         });
+
+        set_value_rt val = std::get<set_value_rt>(value);
+        mem_state[addr].write(val.value,val.bit_loc.Mask);
+
+        // If the state of every bit is known after we write, make it into a
+        // blind write
+        if (mem_state[addr].known_mask == ~reg_type{0})
+        {
+            // FIXME: Move assign operator isn't constexpr for whatever reason
+            auto value_ = ast_node{blind_write_rt{addr,mem_state[addr].bits}};
+            value = value_;
+        }
 
         // Clear out all the operations to and make room for the one that we
         // just made (These are arrays and arn't resizeable, so we just replace

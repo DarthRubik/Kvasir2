@@ -4,12 +4,13 @@
 #include <array>
 #include <utility>
 #include <cstdint>
+#include "boost/hana.hpp"
 #include "algorithm.hpp"
 
 template <typename Key,typename T,std::size_t max_size_>
 class map {
 private:
-    using array_t = std::array<std::pair<Key,T>,max_size_>;
+    using array_t = std::array<boost::hana::pair<Key,T>,max_size_>;
 public:
     typedef typename array_t::value_type value_type;
     typedef typename array_t::reference reference;
@@ -50,24 +51,24 @@ private:
     constexpr iterator it_get(Key key)
     {
         return ::lower_bound(view(*this),key,[](value_type v, Key k) {
-            return v.first < k;
+            return boost::hana::first(v) < k;
         });
     }
     constexpr const_iterator it_get(Key key) const
     {
         return ::lower_bound(view(*this),key,[](value_type v, Key k) {
-            return v.first < k;
+            return boost::hana::first(v) < k;
         });
     }
 
 public:
     constexpr T& operator[](Key key)
     {
-        return it_get(key)->second;
+        return boost::hana::second(*it_get(key));
     }
     constexpr T const& operator[](Key key) const
     {
-        return it_get(key)->second;
+        return boost::hana::second(*it_get(key));
     }
 
     constexpr bool contains(Key key) const
@@ -77,11 +78,12 @@ public:
 
     constexpr std::pair<iterator,bool> insert(const value_type& value)
     {
+        using boost::hana::first;
         // [124563xxxxx]
         //       ^ new element
-        iterator it = it_get(value.first);
+        iterator it = it_get(first(value));
 
-        if (it == end() || it->first != value.first)
+        if (it == end() || first(*it) != first(value))
         {
             *this->end() = value;
             end_index++;
@@ -94,10 +96,11 @@ public:
     }
     constexpr iterator erase(Key key)
     {
+        using boost::hana::first;
         // [123456xxxxx]
         //    ^
         iterator it = it_get(key);
-        if (it == end() || it->first != key)
+        if (it == end() || first(*it) != key)
         {
             return it;
         }

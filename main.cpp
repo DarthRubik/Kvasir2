@@ -2,6 +2,7 @@
 #define USE_KVASIR2_DEBUG_WRITES
 #include "map.hpp"
 #include "Kvasir2.hpp"
+#if 1
 #include "algorithm.hpp"
 #include <cassert>
 #include <iostream>
@@ -77,12 +78,14 @@ void test_equal_range()
 }
 void test_map()
 {
+    using boost::hana::first;
+    using boost::hana::second;
     ::map<int,int,10> my_map;
-    my_map.insert(std::make_pair(5,10));
-    my_map.insert(std::make_pair(2,4));
-    my_map.insert(std::make_pair(10,20));
-    my_map.insert(std::make_pair(3,6));
-    my_map.insert(std::make_pair(42,84));
+    my_map.insert(boost::hana::make_pair(5,10));
+    my_map.insert(boost::hana::make_pair(2,4));
+    my_map.insert(boost::hana::make_pair(10,20));
+    my_map.insert(boost::hana::make_pair(3,6));
+    my_map.insert(boost::hana::make_pair(42,84));
 
     assert(my_map[5] == 10);
     assert(my_map[2] == 4);
@@ -93,20 +96,20 @@ void test_map()
     assert(!my_map.empty());
 
     assert(::is_sorted(my_map,[](auto x, auto y){
-        return x.first < y.first;
+        return boost::hana::first(x) < boost::hana::first(y);
     }));
 
 
-    auto [it,suc] = my_map.insert(std::make_pair(2,8));
+    auto [it,suc] = my_map.insert(boost::hana::make_pair(2,8));
     assert(!suc);
 
     my_map.erase(2);
     assert(my_map.size() == 4);
 
-    std::tie(it,suc) = my_map.insert(std::make_pair(2,8));
+    std::tie(it,suc) = my_map.insert(boost::hana::make_pair(2,8));
     assert(suc);
-    assert(it->first == 2);
-    assert(it->second == 8);
+    assert(first(*it) == 2);
+    assert(second(*it) == 8);
     assert(my_map[2] == 8);
     assert(my_map.size() == 5);
 
@@ -119,6 +122,7 @@ void test_map()
 using loc1 = bit_location<100,1<<0,bool,0>;
 using loc2 = bit_location<200,1<<5,bool,5>;
 using loc3 = bit_location<100,1<<16,bool,1>;
+using loc4 = bit_location<100,(uint32_t)~(1<<16 | 1<<0),std::uint32_t,0>;
 
 void apply_no_read()
 {
@@ -147,6 +151,16 @@ void apply_check_bits_set_and_cleared()
     assert(!std::get<1>(x));
     assert(!std::get<2>(x));
 }
+void apply_blind_write()
+{
+    debug_memory[100] = 0xffffffff;
+    apply(
+        set_value<loc1,true>{},
+        set_value<loc3,false>{},
+        set_value<loc4,0>{}
+    );
+    assert(debug_memory[100] == 1);
+}
 
 
 int main(void)
@@ -157,4 +171,6 @@ int main(void)
     test_map();
     apply_no_read();
     apply_check_bits_set_and_cleared();
+    apply_blind_write();
 }
+#endif
