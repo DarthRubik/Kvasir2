@@ -121,8 +121,9 @@ void test_map()
 
 using loc1 = bit_location<100,1<<0,bool,0>;
 using loc2 = bit_location<200,1<<5,bool,5>;
-using loc3 = bit_location<100,1<<16,bool,1>;
+using loc3 = bit_location<100,1<<16,bool,16>;
 using loc4 = bit_location<100,(uint32_t)~(1<<16 | 1<<0),std::uint32_t,0>;
+using loc5 = bit_location<300,0xff<<8,std::uint8_t,8>;
 
 void apply_no_read()
 {
@@ -161,6 +162,19 @@ void apply_blind_write()
     );
     assert(debug_memory[100] == 1);
 }
+void apply_combine_reads()
+{
+    auto x = apply(
+        set_value<loc1,true>{},
+        set_value<loc3,true>{},
+        set_value<loc4,(10<<17)>{},
+        set_value<loc5,(0xaa)>{},
+        read_value<loc4>{},
+        read_value<loc5>{}
+    );
+    assert(std::get<0>(x) == (10<<17));
+    assert(std::get<1>(x) == 0xaa);
+}
 
 
 int main(void)
@@ -172,5 +186,6 @@ int main(void)
     apply_no_read();
     apply_check_bits_set_and_cleared();
     apply_blind_write();
+    apply_combine_reads();
 }
 #endif

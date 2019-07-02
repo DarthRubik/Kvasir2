@@ -203,8 +203,8 @@ struct set_value_rt
     constexpr set_value_rt(bit_location_rt bit_loc, op_type value)
         : bit_loc(bit_loc), value(value)
     {
-        value <<= bit_loc.Shift;
-        bit_loc.Shift = 0;
+        this->value <<= this->bit_loc.Shift;
+        this->bit_loc.Shift = 0;
     }
     constexpr auto get_inst() const
     {
