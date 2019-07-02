@@ -32,6 +32,7 @@ enum access_kind
     and_op,         // reg[0] <-- reg[r1] & reg[r2]
     output_op,      // output <-- reg[r1]
     shift_right,    // reg[0] <-- reg[r1] >> lit
+    load_lit,       // reg[r1]<-- lit
 };
 struct access
 {
@@ -155,6 +156,15 @@ struct action<output_op,r1,tuple_index>
         std::get<tuple_index>(t) = (type)cont[r1];
     }
 };
+template<op_type r1, op_type literal>
+struct action<load_lit,r1,literal>
+{
+    template<typename cont_t,typename T>
+    void operator()(cont_t& cont,T& t) const
+    {
+        cont[r1] = literal;
+    }
+};
 
 
 
@@ -240,6 +250,19 @@ struct read_value_rt
         };
     }
 };
+struct output_value_rt
+{
+    reg_type value;
+    op_type tuple_index;
+
+    constexpr auto get_inst() const
+    {
+        return std::array<access,max_inst_size>{
+            access{load_lit,0,value},
+            access{output_op,0,tuple_index},
+        };
+    }
+};
 struct nop_rt
 {
     constexpr auto get_inst() const
@@ -249,7 +272,12 @@ struct nop_rt
 };
 
 
-using ast_node = std::variant<set_value_rt,blind_write_rt,read_value_rt,nop_rt>;
+using ast_node = std::variant<
+    set_value_rt,
+    blind_write_rt,
+    read_value_rt,
+    output_value_rt,
+    nop_rt>;
 
 
 
@@ -361,6 +389,26 @@ constexpr std::array<ast_node,size> optimize_ast(std::array<ast_node,size> ast)
             [](auto x){return ast_node(nop_rt{});});
 
         *std::begin(range) = value;
+    }
+
+    for (auto& node : ast)
+    {
+        if (std::holds_alternative<read_value_rt>(node))
+        {
+            auto item = std::get<read_value_rt>(node);
+            if ((mem_state[item.bit_loc.Addr].known_mask & item.bit_loc.Mask)
+                    == item.bit_loc.Mask)
+            {
+                auto value_ = ast_node{
+                    output_value_rt{
+                        ((mem_state[item.bit_loc.Addr].bits & item.bit_loc.Mask)
+                             >> item.bit_loc.Shift),
+                        item.tuple_index
+                    }
+                };
+                node = value_;
+            }
+        }
     }
 
     return ast;
