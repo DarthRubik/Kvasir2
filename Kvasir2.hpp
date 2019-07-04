@@ -43,8 +43,8 @@ struct access
 struct null_t{};
 template<access_kind, op_type, op_type>
 struct action{
-    template<typename cont_t,typename T>
-    void operator()(cont_t& cont,T) const{}
+    template<typename state_t>
+    void operator()(state_t& state) const{}
 };
 
 #ifdef USE_KVASIR2_DEBUG_WRITES
@@ -54,8 +54,8 @@ reg_type debug_memory[1000];
 template<op_type addr, op_type val>
 struct action<write_lit,addr,val>
 {
-    template<typename cont_t,typename T>
-    void operator()(cont_t& cont,T) const
+    template<typename state_t>
+    void operator()(state_t& state) const
     {
 #ifdef USE_KVASIR2_DEBUG_WRITES
         debug_memory[addr] = val;
@@ -69,100 +69,106 @@ struct action<write_lit,addr,val>
 template<op_type addr, op_type reg>
 struct action<write_rel,addr,reg>
 {
-    template<typename cont_t,typename T>
-    void operator()(cont_t& cont,T) const
+    template<typename state_t>
+    void operator()(state_t& state) const
     {
 #ifdef USE_KVASIR2_DEBUG_WRITES
-        debug_memory[addr] = cont[reg];
+        debug_memory[addr]
 #else
-        *reinterpret_cast<reg_type volatile*>(addr) = cont[reg];
+        *reinterpret_cast<reg_type volatile*>(addr)
 #endif
+            = state.virtual_registers[reg];
     }
 };
 template<op_type addr, op_type reg>
 struct action<read,addr,reg>
 {
-    template<typename cont_t,typename T>
-    void operator()(cont_t& cont,T) const
+    template<typename state_t>
+    void operator()(state_t& state) const
     {
+        state.virtual_registers[reg] =
 #ifdef USE_KVASIR2_DEBUG_WRITES
-        cont[reg] = debug_memory[addr];
+            debug_memory[addr];
 #else
-        cont[reg] = *reinterpret_cast<reg_type volatile*>(addr);
+            *reinterpret_cast<reg_type volatile*>(addr);
 #endif
     }
 };
 template<op_type literal, op_type reg>
 struct action<or_lit,literal,reg>
 {
-    template<typename cont_t,typename T>
-    void operator()(cont_t& cont, T) const
+    template<typename state_t>
+    void operator()(state_t& state) const
     {
-        cont[0] = literal | cont[reg];
+        state.virtual_registers[0] = literal | state.virtual_registers[reg];
     }
 };
 template<op_type literal, op_type reg>
 struct action<and_lit,literal,reg>
 {
-    template<typename cont_t,typename T>
-    void operator()(cont_t& cont,T) const
+    template<typename state_t>
+    void operator()(state_t& state) const
     {
-        cont[0] = literal & cont[reg];
+        state.virtual_registers[0] = literal & state.virtual_registers[reg];
     }
 };
 template<op_type reg, op_type op2>
 struct action<not_op,reg,op2>
 {
-    template<typename cont_t,typename T>
-    void operator()(cont_t& cont,T) const
+    template<typename state_t>
+    void operator()(state_t& state) const
     {
-        cont[0] = ~cont[reg];
+        state.virtual_registers[0] = ~state.virtual_registers[reg];
     }
 };
 template<op_type r1, op_type r2>
 struct action<or_op,r1,r2>
 {
-    template<typename cont_t,typename T>
-    void operator()(cont_t& cont,T) const
+    template<typename state_t>
+    void operator()(state_t& state) const
     {
-        cont[0] = cont[r1] | cont[r2];
+        state.virtual_registers[0] =
+            state.virtual_registers[r1] |
+            state.virtual_registers[r2];
     }
 };
 template<op_type r1, op_type r2>
 struct action<and_op,r1,r2>
 {
-    template<typename cont_t,typename T>
-    void operator()(cont_t& cont,T) const
+    template<typename state_t>
+    void operator()(state_t& state) const
     {
-        cont[0] = cont[r1] & cont[r2];
+        state.virtual_registers[0] =
+            state.virtual_registers[r1] &
+            state.virtual_registers[r2];
     }
 };
 template<op_type r1, op_type lit>
 struct action<shift_right,r1,lit>
 {
-    template<typename cont_t,typename T>
-    void operator()(cont_t& cont,T) const
+    template<typename state_t>
+    void operator()(state_t& state) const
     {
-        cont[0] = cont[r1] >> lit;
+        state.virtual_registers[0] = state.virtual_registers[r1] >> lit;
     }
 };
 template<op_type r1, op_type tuple_index>
 struct action<output_op,r1,tuple_index>
 {
-    template<typename cont_t,typename T>
-    void operator()(cont_t& cont,T& t) const
+    template<typename state_t>
+    void operator()(state_t& state) const
     {
-        using type = std::decay_t<decltype(std::get<tuple_index>(t))>;
-        std::get<tuple_index>(t) = (type)cont[r1];
+        using type = std::decay_t<decltype(std::get<tuple_index>(state.tuple))>;
+        std::get<tuple_index>(state.tuple) = (type)state.virtual_registers[r1];
     }
 };
 template<op_type r1, op_type literal>
 struct action<load_lit,r1,literal>
 {
-    template<typename cont_t,typename T>
-    void operator()(cont_t& cont,T& t) const
+    template<typename state_t>
+    void operator()(state_t& state) const
     {
-        cont[r1] = literal;
+        state.virtual_registers[r1] = literal;
     }
 };
 
@@ -435,8 +441,6 @@ auto apply_impl(std::index_sequence<t_index...>,std::index_sequence<inst_index..
     // Now convert the type list into a std::tuple
     using ret_t = typename decltype(unpack(return_filtered, template_<std::tuple>))::type;
 
-    ret_t ret{};
-
     constexpr std::array<ast_node,sizeof...(T)> nodes =
     {
         t.get_rt()...
@@ -454,15 +458,22 @@ auto apply_impl(std::index_sequence<t_index...>,std::index_sequence<inst_index..
         sub_prog[inst_index/max_inst_size][inst_index%max_inst_size]...
     };
 
-    // A set of "registers"
-    std::array<op_type, 16> virtual_registers{};
+    struct
+    {
+        ret_t tuple;
+        std::array<op_type, 16> virtual_registers;
+    } state
+    {
+        ret_t{},
+        std::array<op_type,16>{}
+    };
+
     (action<
         inst[inst_index].kind,
         inst[inst_index].op1,
-        inst[inst_index].op2>{}(
-            virtual_registers,ret),...);
+        inst[inst_index].op2>{}(state),...);
     
-    return ret;
+    return state.tuple;
 }
 template<typename... T>
 auto apply(T... t)
