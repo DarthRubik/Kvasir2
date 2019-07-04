@@ -175,6 +175,22 @@ void apply_combine_reads()
     assert(std::get<0>(x) == (10<<17));
     assert(std::get<1>(x) == 0xaa);
 }
+void apply_cache_value()
+{
+    debug_memory[100] = 0;
+    auto x = apply(
+        set_value<loc1,true>{},
+        read_value<loc3>{}
+    );
+    assert(!std::get<0>(x));
+
+    auto y = apply(
+        read_value<loc1>{},
+        read_value<loc3>{}
+    );
+    assert(std::get<0>(y));
+    assert(!std::get<1>(y));
+}
 
 
 int main(void)
@@ -187,5 +203,6 @@ int main(void)
     apply_check_bits_set_and_cleared();
     apply_blind_write();
     apply_combine_reads();
+    apply_cache_value();
 }
 #endif

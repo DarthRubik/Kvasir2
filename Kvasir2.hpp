@@ -215,6 +215,7 @@ struct set_value_rt
 {
     bit_location_rt bit_loc;
     op_type value;
+    op_type cache_reg = 0;
     constexpr set_value_rt() : set_value_rt(bit_location_rt{},0){}
     constexpr set_value_rt(bit_location_rt bit_loc, op_type value)
         : bit_loc(bit_loc), value(value)
@@ -225,8 +226,8 @@ struct set_value_rt
     constexpr auto get_inst() const
     {
         return std::array<access,max_inst_size>{
-            access{read,bit_loc.Addr,0},
-            access{and_lit,~bit_loc.Mask,0},
+            access{read,bit_loc.Addr,cache_reg},
+            access{and_lit,~bit_loc.Mask,cache_reg},
             access{or_lit,(value)<<bit_loc.Shift,0},
             access{write_rel,bit_loc.Addr,0},
         };
@@ -246,12 +247,29 @@ struct read_value_rt
 {
     bit_location_rt bit_loc;
     op_type tuple_index;
+    op_type cache_reg = 0;
+
     constexpr auto get_inst() const
     {
         return std::array<access,max_inst_size>{
-            access{read,bit_loc.Addr,0},
-            access{and_lit,bit_loc.Mask,0},
+            access{read,bit_loc.Addr,cache_reg},
+            access{and_lit,bit_loc.Mask,cache_reg},
             access{shift_right,0,bit_loc.Shift},
+            access{output_op,0,tuple_index},
+        };
+    }
+};
+struct read_cached_value_rt
+{
+    op_type cached_reg;
+    op_type mask;
+    op_type shift;
+    op_type tuple_index;
+    constexpr auto get_inst() const
+    {
+        return std::array<access,max_inst_size>{
+            access{and_lit,mask,cached_reg},
+            access{shift_right,0,shift},
             access{output_op,0,tuple_index},
         };
     }
@@ -281,6 +299,7 @@ struct nop_rt
 using ast_node = std::variant<
     set_value_rt,
     blind_write_rt,
+    read_cached_value_rt,
     read_value_rt,
     output_value_rt,
     nop_rt>;
@@ -314,7 +333,7 @@ struct register_state
 {
     reg_type bits = 0;
     reg_type known_mask = 0;
-    bool cached = false;
+    int cache_reg = -1;
     constexpr register_state() = default;
     constexpr register_state(const register_state&) = default;
     constexpr register_state(register_state&&) = default;
@@ -325,11 +344,6 @@ struct register_state
     {
         bits = (bits & ~mask) | value;
         known_mask |= mask;
-        cached = true;
-    }
-    constexpr void read()
-    {
-        cached = true;
     }
 };
 
@@ -364,6 +378,7 @@ constexpr std::array<ast_node,size> optimize_ast(std::array<ast_node,size> ast)
     auto same_addr_ranges_v = split(same_addr_range,sadr_last).first;
 
 
+    unsigned int current_reg = 1;
     for (auto range : same_addr_ranges_v)
     {
         auto addr = addr_v(*std::begin(range));
@@ -386,6 +401,12 @@ constexpr std::array<ast_node,size> optimize_ast(std::array<ast_node,size> ast)
             // FIXME: Move assign operator isn't constexpr for whatever reason
             auto value_ = ast_node{blind_write_rt{addr,mem_state[addr].bits}};
             value = value_;
+        }
+        else
+        {
+            std::get<set_value_rt>(value).cache_reg = current_reg;
+            mem_state[addr].cache_reg = current_reg;
+            current_reg++;
         }
 
         // Clear out all the operations to and make room for the one that we
@@ -413,6 +434,29 @@ constexpr std::array<ast_node,size> optimize_ast(std::array<ast_node,size> ast)
                     }
                 };
                 node = value_;
+            }
+            else if (mem_state[item.bit_loc.Addr].cache_reg != -1)
+            {
+                auto value_ = ast_node{
+                    read_cached_value_rt{
+                        (op_type)mem_state[item.bit_loc.Addr].cache_reg,
+                        item.bit_loc.Mask,
+                        item.bit_loc.Shift,
+                        item.tuple_index
+                    }
+                };
+                node = value_;
+            }
+            else
+            {
+                if (!mem_state.contains(item.bit_loc.Addr))
+                {
+                    mem_state.insert(
+                        make_pair(item.bit_loc.Addr,register_state{}));
+                }
+                std::get<read_value_rt>(node).cache_reg = current_reg;
+                mem_state[item.bit_loc.Addr].cache_reg = current_reg;
+                current_reg++;
             }
         }
     }
@@ -461,11 +505,11 @@ auto apply_impl(std::index_sequence<t_index...>,std::index_sequence<inst_index..
     struct
     {
         ret_t tuple;
-        std::array<op_type, 16> virtual_registers;
+        std::array<op_type, sizeof...(T)+1> virtual_registers;
     } state
     {
         ret_t{},
-        std::array<op_type,16>{}
+        std::array<op_type,sizeof...(T)+1>{}
     };
 
     (action<
