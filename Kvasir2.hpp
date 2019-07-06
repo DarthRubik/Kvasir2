@@ -29,13 +29,108 @@ struct bit_location_rt
         : Addr(Addr), Mask(Mask), Shift(Shift) {}
 };
 
-template<op_type addr, op_type mask, typename type_t, unsigned int shift = 0>
+
+enum class write_action
+{
+    takes_value,
+    is_cleared_if_0,
+    is_cleared_if_1,
+    is_set_if_1,
+    is_set_if_0,
+    is_cleared,
+    is_set,
+    no_action,
+};
+struct register_actions
+{
+    struct
+    {
+        reg_type takes_value{};
+        reg_type is_cleared_if_0{};
+        reg_type is_cleared_if_1{};
+        reg_type is_set_if_1{};
+        reg_type is_set_if_0{};
+        reg_type is_cleared{};
+        reg_type is_set{};
+        reg_type no_action{};
+
+        /*
+         * Returns a mask of bits that remain "unchanged" if written to zero
+         */
+        constexpr reg_type zero_is_const() const
+        {
+            return is_cleared_if_1 | is_set_if_1 | no_action;
+        }
+
+        /*
+         * Returns a mask of bits that remain "unchanged" if written to one
+         */
+        constexpr reg_type one_is_const() const
+        {
+            return is_cleared_if_0 | is_set_if_0 | no_action;
+        }
+
+        /*
+         * Returns the bits we have a way we know at compile time how to do
+         * nothing when writing to them
+         */
+        constexpr reg_type const_operation_known() const
+        {
+            return zero_is_const() | one_is_const();
+        }
+
+    } write_actions;
+
+    constexpr void add_write_action(reg_type mask, write_action waction)
+    {
+        switch (waction)
+        {
+            case write_action::takes_value:
+                this->write_actions.takes_value |= mask;
+                break;
+            case write_action::is_cleared_if_0:
+                this->write_actions.is_cleared_if_0 |= mask;
+                break;
+            case write_action::is_cleared_if_1:
+                this->write_actions.is_cleared_if_1 |= mask;
+                break;
+            case write_action::is_set_if_1:
+                this->write_actions.is_set_if_1 |= mask;
+                break;
+            case write_action::is_set_if_0:
+                this->write_actions.is_set_if_0 |= mask;
+                break;
+            case write_action::is_cleared:
+                this->write_actions.is_cleared |= mask;
+                break;
+            case write_action::is_set:
+                this->write_actions.is_set |= mask;
+                break;
+            case write_action::no_action:
+                this->write_actions.no_action |= mask;
+                break;
+            default:
+                throw "";
+        }
+    }
+
+};
+
+
+template<
+    op_type addr,
+    op_type mask,
+    typename type_t,
+    unsigned int shift = 0,
+    type_t default_value = 0,
+    write_action waction = write_action::takes_value>
 struct bit_location
 {
     static constexpr op_type Addr = addr;
     static constexpr reg_type Mask = mask;
     using type = type_t;
     static constexpr unsigned int Shift = shift;
+    static constexpr type_t Default = default_value;
 
     constexpr auto to_rt() const
         { return bit_location_rt{ Addr, Mask, Shift }; }
@@ -48,10 +143,15 @@ namespace detail
         std::size_t registers = 0;
     };
 
-    template<op_type addr, op_type mask, typename type_t, unsigned int shift>
+    template<op_type addr,
+             op_type mask,
+             typename type_t,
+             unsigned int shift,
+             type_t default_value,
+             write_action waction>
     constexpr reg_count_helper& operator&(
             reg_count_helper& counter,
-            bit_location<addr,mask,type_t,shift>)
+            bit_location<addr,mask,type_t,shift,default_value,waction>)
     {
         counter.registers++;
         return counter;
@@ -72,18 +172,27 @@ namespace detail
     template<typename T>
     struct map_maker_helper
     {
-        map<op_type,int,count_regs<T>()> inner{};
+        map<op_type,register_actions,count_regs<T>()> inner{};
     };
 
-    template<typename T, op_type addr, op_type mask, typename type_t, unsigned int shift>
+    template<typename T,
+             op_type addr,
+             op_type mask,
+             typename type_t,
+             unsigned int shift,
+             type_t default_value,
+             write_action waction>
     constexpr map_maker_helper<T>& operator&(
             map_maker_helper<T>& map_maker,
-            bit_location<addr,mask,type_t,shift>)
+            bit_location<addr,mask,type_t,shift,default_value,waction>)
     {
         if (!map_maker.inner.contains(addr))
         {
-            map_maker.inner.insert(boost::hana::make_pair(addr,0));
+            map_maker.inner.insert(
+                boost::hana::make_pair(addr,register_actions{}));
         }
+
+        map_maker.inner[addr].add_write_action(mask,waction);
         return map_maker;
     }
 }
@@ -289,10 +398,33 @@ struct reg_access_t
         }
         constexpr auto get_inst() const
         {
+            reg_type not_inc_mask = ~bit_loc.Mask;
+            auto wa = memory_map<cpu>[bit_loc.Addr].write_actions;
+
             return std::array<access,max_inst_size>{
                 access{read,bit_loc.Addr,cache_reg},
-                access{and_lit,~bit_loc.Mask,cache_reg},
-                access{or_lit,(value)<<bit_loc.Shift,0},
+                /*
+                 * The goal here is to do nothing to the items that haven't
+                 * been called out by this write..
+                 *
+                 * This means if a bit isn't to be written then there are three
+                 * cases:
+                 *
+                 *  - It should be written back the value it currently has
+                 *  - It should be written back 1 (this operation keeps the
+                 *  register unchanged)
+                 *  - Dito for 0
+                 */
+                access{
+                    and_lit,
+                    not_inc_mask | wa.zero_is_const(),
+                    cache_reg
+                },
+                access{
+                    or_lit,
+                    ((value)<<bit_loc.Shift) | (wa.one_is_const() & not_inc_mask),
+                    0
+                },
                 access{write_rel,bit_loc.Addr,0},
             };
         }
@@ -416,6 +548,7 @@ struct reg_access_t
     struct register_state
     {
         reg_type bits = 0;
+        reg_type written_bits = 0;
         reg_type known_mask = 0;
         int cache_reg = -1;
         constexpr register_state() = default;
@@ -428,6 +561,7 @@ struct reg_access_t
         {
             bits = (bits & ~mask) | value;
             known_mask |= mask;
+            written_bits |= mask;
         }
     };
 
@@ -490,12 +624,28 @@ struct reg_access_t
             set_value_rt val = std::get<set_value_rt>(value);
             mem_state[addr].write(val.value,val.bit_loc.Mask);
 
-            // If the state of every bit is known after we write, make it into a
-            // blind write
-            if (mem_state[addr].known_mask == ~reg_type{0})
+            // If the state of every bit is known after we write or we know an
+            // operation that will keep the bit in the same state, make it into
+            // a blind write
+            //
+            auto wa = memory_map<cpu>[addr].write_actions;
+            auto known_state =
+                  0 //wa.const_operation_known()
+                | mem_state[addr].known_mask;
+            if (known_state == ~reg_type{0})
             {
                 // FIXME: Move assign operator isn't constexpr for whatever reason
-                auto value_ = ast_node{blind_write_rt{addr,mem_state[addr].bits}};
+                auto value_ = ast_node{
+                    blind_write_rt{
+                        addr,
+                        // Write the values we want written, plus all the ones
+                        // we don't want written that have an operation that
+                        // lets it stay constant
+                        (mem_state[addr].bits
+                            | (wa.one_is_const() & ~mem_state[addr].written_bits))
+                            & (~wa.zero_is_const() | ~mem_state[addr].written_bits)
+                    }
+                };
                 value = value_;
             }
             else

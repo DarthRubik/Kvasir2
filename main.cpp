@@ -189,6 +189,33 @@ void apply_cache_value()
     assert(!std::get<1>(y));
 }
 
+void apply_bit_is_static_sometimes()
+{
+    ra_t::debug_memory[400] = 0;
+    auto x = ra_t::apply(
+        ra_t::set_value<cpu::loc6,0xaa>{},
+        ra_t::set_value<cpu::loc9,0xbb>{},
+        ra_t::read_value<cpu::loc6>{},
+        ra_t::read_value<cpu::loc9>{}
+    );
+    assert(ra_t::debug_memory[400] == 0xaa00ffbb);
+    assert(ra_t::debug_memory[400] == 0xaa00ffbb);
+    assert(std::get<0>(x) == 0xaa);
+    assert(std::get<1>(x) == 0xbb);
+
+    ra_t::debug_memory[400] = 0xbb;
+    x = ra_t::apply(
+        ra_t::set_value<cpu::loc6,0xaa>{},
+        ra_t::read_value<cpu::loc6>{},
+        ra_t::read_value<cpu::loc9>{}
+    );
+    assert(ra_t::debug_memory[400] == 0xaa00ffbb);
+    assert(ra_t::debug_memory[400] == 0xaa00ffbb);
+    assert(std::get<0>(x) == 0xaa);
+    assert(std::get<1>(x) == 0xbb);
+
+}
+
 
 int main(void)
 {
@@ -201,5 +228,6 @@ int main(void)
     apply_blind_write();
     apply_combine_reads();
     apply_cache_value();
+    apply_bit_is_static_sometimes();
 }
 #endif
