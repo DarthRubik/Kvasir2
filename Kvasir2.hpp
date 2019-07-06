@@ -777,8 +777,10 @@ struct reg_access_t
 
 };
 
+#ifdef USE_KVASIR2_DEBUG_WRITES
 template<typename cpu>
 reg_type reg_access_t<cpu>::debug_memory[1000];
+#endif
 
 
 #endif
