@@ -630,7 +630,7 @@ struct reg_access_t
             //
             auto wa = memory_map<cpu>[addr].write_actions;
             auto known_state =
-                  0 //wa.const_operation_known()
+                  wa.const_operation_known()
                 | mem_state[addr].known_mask;
             if (known_state == ~reg_type{0})
             {
