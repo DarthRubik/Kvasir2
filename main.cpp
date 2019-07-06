@@ -2,6 +2,7 @@
 #define USE_KVASIR2_DEBUG_WRITES
 #include "Kvasir2.hpp"
 #if 1
+#include "test_registers.hpp"
 #include "map.hpp"
 #include "algorithm.hpp"
 #include <cassert>
@@ -119,74 +120,70 @@ void test_map()
 }
 
 
-using loc1 = bit_location<100,1<<0,bool,0>;
-using loc2 = bit_location<200,1<<5,bool,5>;
-using loc3 = bit_location<100,1<<16,bool,16>;
-using loc4 = bit_location<100,(uint32_t)~(1<<16 | 1<<0),std::uint32_t,0>;
-using loc5 = bit_location<300,0xff<<8,std::uint8_t,8>;
+using ra_t = reg_access_t<::cpu>;
 
 void apply_no_read()
 {
-    apply(
-        set_value<loc1,true>{},
-        set_value<loc2,false>{}
+    ra_t::apply(
+        ra_t::set_value<cpu::loc1,true>{},
+        ra_t::set_value<cpu::loc2,false>{}
     );
 }
 
 void apply_check_bits_set_and_cleared()
 {
-    debug_memory[100] = 0xffffff00;
-    debug_memory[200] = 0xffffffff;
+    ra_t::debug_memory[100] = 0xffffff00;
+    ra_t::debug_memory[200] = 0xffffffff;
 
-    auto x = apply(
-        read_value<loc1>{},
-        read_value<loc2>{},
-        read_value<loc3>{},
-        set_value<loc1,true>{},
-        set_value<loc2,false>{},
-        set_value<loc3,false>{}
+    auto x = ra_t::apply(
+        ra_t::read_value<cpu::loc1>{},
+        ra_t::read_value<cpu::loc2>{},
+        ra_t::read_value<cpu::loc3>{},
+        ra_t::set_value<cpu::loc1,true>{},
+        ra_t::set_value<cpu::loc2,false>{},
+        ra_t::set_value<cpu::loc3,false>{}
     );
-    assert(debug_memory[100] == 0xfffeff01);
-    assert(debug_memory[200] == 0xffffffdf);
+    assert(ra_t::debug_memory[100] == 0xfffeff01);
+    assert(ra_t::debug_memory[200] == 0xffffffdf);
     assert(std::get<0>(x));
     assert(!std::get<1>(x));
     assert(!std::get<2>(x));
 }
 void apply_blind_write()
 {
-    debug_memory[100] = 0xffffffff;
-    apply(
-        set_value<loc1,true>{},
-        set_value<loc3,false>{},
-        set_value<loc4,0>{}
+    ra_t::debug_memory[100] = 0xffffffff;
+    ra_t::apply(
+        ra_t::set_value<cpu::loc1,true>{},
+        ra_t::set_value<cpu::loc3,false>{},
+        ra_t::set_value<cpu::loc4,0>{}
     );
-    assert(debug_memory[100] == 1);
+    assert(ra_t::debug_memory[100] == 1);
 }
 void apply_combine_reads()
 {
-    auto x = apply(
-        set_value<loc1,true>{},
-        set_value<loc3,true>{},
-        set_value<loc4,(10<<17)>{},
-        set_value<loc5,(0xaa)>{},
-        read_value<loc4>{},
-        read_value<loc5>{}
+    auto x = ra_t::apply(
+        ra_t::set_value<cpu::loc1,true>{},
+        ra_t::set_value<cpu::loc3,true>{},
+        ra_t::set_value<cpu::loc4,(10<<17)>{},
+        ra_t::set_value<cpu::loc5,(0xaa)>{},
+        ra_t::read_value<cpu::loc4>{},
+        ra_t::read_value<cpu::loc5>{}
     );
     assert(std::get<0>(x) == (10<<17));
     assert(std::get<1>(x) == 0xaa);
 }
 void apply_cache_value()
 {
-    debug_memory[100] = 0;
-    auto x = apply(
-        set_value<loc1,true>{},
-        read_value<loc3>{}
+    ra_t::debug_memory[100] = 0;
+    auto x = ra_t::apply(
+        ra_t::set_value<cpu::loc1,true>{},
+        ra_t::read_value<cpu::loc3>{}
     );
     assert(!std::get<0>(x));
 
-    auto y = apply(
-        read_value<loc1>{},
-        read_value<loc3>{}
+    auto y = ra_t::apply(
+        ra_t::read_value<cpu::loc1>{},
+        ra_t::read_value<cpu::loc3>{}
     );
     assert(std::get<0>(y));
     assert(!std::get<1>(y));
