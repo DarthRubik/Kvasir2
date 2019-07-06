@@ -1,8 +1,8 @@
 
 #define USE_KVASIR2_DEBUG_WRITES
-#include "map.hpp"
 #include "Kvasir2.hpp"
 #if 1
+#include "map.hpp"
 #include "algorithm.hpp"
 #include <cassert>
 #include <iostream>

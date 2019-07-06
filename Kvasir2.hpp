@@ -11,6 +11,7 @@
 #include <variant>
 #include <variant>
 #include "algorithm.hpp"
+#include "map.hpp"
 
 
 using reg_type = std::uint32_t;
